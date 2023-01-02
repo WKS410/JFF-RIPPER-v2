@@ -1,5 +1,3 @@
-# JFF Ripper V1.0.0 by Puyodead1
-
 import argparse
 import base64
 import json
@@ -8,7 +6,40 @@ import subprocess
 from base64 import b64encode
 from pathlib import Path
 from typing import IO, Union
+import pyfiglet
+from rich import print
+from typing import DefaultDict
+import json
+import random
+import uuid
+import token_jffplus
+import httpx
+from lxml import html
+import os
+import shutil
+import json
+import subprocess
+import argparse
+import sys
+import pyfiglet
+from rich import print
+from typing import DefaultDict
+from os import remove
+import sys, math, uuid, base64, hashlib
+import isodate, datetime, shutil, html
+import requests, re, os, urllib, uuid
+import subprocess, pycaption, argparse
+import xmltodict, pathlib
+import glob, ffmpy, time, json
+import logging
 
+from subprocess import Popen
+from unidecode import unidecode
+from os.path import isfile, join, basename
+
+from titlecase import titlecase
+from m3u8 import parse as m3u8parser
+from helpers.logger import Logger
 import requests
 import xmltodict
 from coloredlogs import ColoredFormatter, logging
@@ -18,32 +49,32 @@ from pywidevine.L3.cdm import deviceconfig
 from pywidevine.L3.cdm.key import Key
 from pywidevine.L3.decrypt.wvdecryptcustom import WvDecrypt
 
-# setup logger
-logging.root.setLevel(logging.INFO)
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-formatter = ColoredFormatter(
-    '[%(asctime)s] %(levelname)s: %(message)s', datefmt='%I:%M:%S')
-stream = logging.StreamHandler()
-stream.setLevel(logging.INFO)
-stream.setFormatter(formatter)
-logger.addHandler(stream)
+os.system('')
+SERVICE = 'JFFP'
+LOGLEVEL = logging.INFO
+logger = Logger(SERVICE,LOGLEVEL).set_logger()
+
+title = ('JFFP')
+logger.info(f'{title}')
 
 DOWNLOADS_PATH = Path(os.getcwd(), "downloads")
-VAULT_FILE_PATH = Path(os.getcwd(), "jff.keys")
+VAULT_FILE_PATH = Path(os.getcwd(), "jffplus.txt")
 
-DEVICE = deviceconfig.device_herolte_4445_l3
+DEVICE = deviceconfig.device_android_generic
 
 METADATA_URL = "https://watch.jff.jpf.go.jp/services/meta/v2/film/{id}/show_multiple"
 PLAYBACK_URL = "https://watch.jff.jpf.go.jp/services/playback/streams/film/{id}"
 LICENSE_URL = "https://watch.jff.jpf.go.jp/services/license/widevine/cenc?context={context}&d=v1bpqmdl.all"
+
+tag_jffplus = "JFFP"
+tag_user = "WKS"
 
 headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:97.0) Gecko/20100101 Firefox/97.0',
     'Accept': 'application/json, text/plain, */*',
     'Accept-Language': 'en-US,en;q=0.5',
     'Accept-Encoding': 'gzip, deflate, br',
-    'x-auth-token': 'CHANGE ME', # <---------------- CHANGE ME
+    'x-auth-token': format(token_jffplus.token),
     'DNT': '1',
     'Connection': 'keep-alive',
     'Referer': 'https://watch.jff.jpf.go.jp/play/',
@@ -86,11 +117,6 @@ def get_keys(pssh, license_url, cert_b64=None) -> tuple[bool, list[Key]]:
 
     widevine_license = session.post(
         url=license_url, data=challenge)
-    
-    if not widevine_license.ok:
-        raise Exception(
-            f"Failed to get license: {widevine_license.text} (Make sure you don't have 3 devices https://watch.jff.jpf.go.jp/devices.html)")
-
     license_b64 = b64encode(widevine_license.content)
     wvdecrypt.update_license(license_b64)
     Correct, keyswvdecrypt = wvdecrypt.start_process()
@@ -136,11 +162,6 @@ class SubtitleTrack:
         self.path: str = data["path"]
 
 
-class Recommendation:
-    def __init__(self) -> None:
-        pass
-
-
 class Film:
     def __init__(self, data: dict) -> None:
         image_urls = data["image_urls"]
@@ -156,12 +177,11 @@ class Film:
         self.overview: str = data["overview"]
         self.genres: list[str] = data["genres"]
         self.title: str = data["title"]
-        self.title_safe: str = sanitize_filename(self.title)
+        self.title_safe: str = (sanitize_filename(self.title)).replace('\'','')
         self.slug: str = data["slug"]
         self.film_id: int = data["film_id"]
         self.id: int = data["id"]
         self.subtitle_tracks: list[SubtitleTrack] = []
-        self.recommendations: list[Recommendation] = []
         self.seo_title: str = data["seo_title"]
         self.seo_keywords: str = data["seo_keywords"]
         self.seo_description: str = data["seo_description"]
@@ -196,9 +216,6 @@ class Film:
         for subtitle in data["subtitle_tracks"]:
             self.subtitle_tracks.append(SubtitleTrack(subtitle))
 
-        for recommendation in data["recommendations"]:
-            self.recommendations.append(Recommendation(recommendation))
-
 
 class PlaybackStream:
     def __init__(self, data) -> None:
@@ -222,7 +239,6 @@ class PlaybackInfo:
 
         for stream in data["streams"]:
             self.streams.append(PlaybackStream(stream))
-
 
 def get_film_metadata(film_id: int) -> Film:
     """
@@ -279,70 +295,8 @@ def get_pssh(url: str, range: str) -> bytes:
         raise Exception(f"Failed to get track url {url}: {res.text}")
 
     return read_pssh_from_bytes(res.content)
+    
 
-
-def download_aria(url, file_dir, filename):
-    """
-    @author Puyodead1
-    """
-    args = [
-        "aria2c", url, "-o", filename, "-d", file_dir, "-j16", "-s20", "-x16",
-        "-c", "--auto-file-renaming=false", "--summary-interval=0"
-    ]
-    ret_code = subprocess.Popen(
-        args
-    ).wait()
-    if ret_code != 0:
-        raise Exception(
-            f"[-] Failed to download file: non-zero return code {ret_code}")
-    return ret_code
-
-
-def shaka_decrypt(encrypted, decrypted, keys: Union[list[Key],  Key], stream=0):
-    decrypt_command = [
-        "shaka-packager",
-        "--enable_raw_key_decryption",
-        "-quiet",
-        "input={},stream={},output={}".format(encrypted, stream, decrypted),
-    ]
-    if isinstance(keys, list):
-        for key in keys:
-            decrypt_command.append("--keys")
-            decrypt_command.append("key={}:key_id={}".format(key.key, key.kid))
-    else:
-        decrypt_command.append("--keys")
-        decrypt_command.append("key={}:key_id={}".format(keys.key, keys.kid))
-    ret_code = subprocess.Popen(
-        decrypt_command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
-    ).wait()
-    return ret_code
-
-
-def merge_mkv(audio, video, final):
-    ret_code = subprocess.Popen(
-        [
-            "mkvmerge",
-            "--priority",
-            "lower",
-            "--output",
-            final,
-            "--language",
-            "0:eng",
-            "(",
-            video,
-            ")",
-            "--language",
-            "0:eng",
-            "(",
-            audio,
-            ")",
-            "--track-order",
-            "0:0,1:0"
-        ]).wait()
-    if ret_code != 0:
-        raise Exception(
-            f"[-] Failed to merge audio and video: non-zero return code {ret_code}")
-    return ret_code
 
 
 def get_vault() -> list[dict[str, str]]:
@@ -360,22 +314,6 @@ def save_vault(vault: list[str]):
     with VAULT_FILE_PATH.open("w") as vault_file:
         json.dump(vault, vault_file)
 
-
-def save_keys_to_vault(keys: list[Key], resource: str):
-    VAULT = get_vault()
-    for l in keys:
-        if l in VAULT:
-            logger.warning(f"+ Key {l} already in vault, skipping")
-            continue
-        VAULT.append({
-            "kid": l.kid,
-            "key": l.kid,
-            "resource": resource,
-            "provider": "jff",
-        })
-    save_vault(VAULT)
-
-
 def get_key_from_vault(kid: str) -> list[Key]:
     VAULT = get_vault()
     result = next((x for x in VAULT if x["kid"] == kid), None)
@@ -383,6 +321,13 @@ def get_key_from_vault(kid: str) -> list[Key]:
         return [Key(result["kid"], "content", result["key"])]
     else:
         return None
+
+def convert_size(size_bytes):
+    if size_bytes == 0:
+        return '0bps'
+    else:
+        s = round(size_bytes / 1000, 0)
+        return '%ikb/s' % s
 
 
 def main():
@@ -393,6 +338,17 @@ def main():
                         action="store_true", help="Enable debug logging")
 
     args = parser.parse_args()
+    
+    currentFile = __file__
+    realPath = os.path.realpath(currentFile)
+    dirPath = os.path.dirname(realPath)
+    dirName = os.path.basename(dirPath)
+    dir = dirPath
+    
+    reexe = dirPath + '/RE.exe'
+    shakaexe = dirPath + '/shaka.exe'
+    ffmpegexe = dirPath + '/ffmpeg.exe'
+    mkvmergeexe = dirPath + '/mkvmerge.exe'
 
     film_id = args.film_id
     if args.debug:
@@ -444,93 +400,123 @@ def main():
     # get the dash manifest
     logger.info("[+] Getting dash manifest...")
     dash_res = session.get(dash_stream.url)
+    dash_url2 = ([f"{dash_stream.url}"])
+    logger.info(dash_url2)
     if not dash_res.ok:
         raise Exception(
             f"Failed to get dash manifest: {dash_res.text}")
     manifest = xmltodict.parse(dash_res.text)
     sets = manifest["MPD"]["Period"]["AdaptationSet"]
-    video_set = sets[0]
-    audio_set = sets[1]
-
-    video_rep = video_set["Representation"][-1]
+    for x in sets:
+        if x['@contentType'] == 'video':
+            video_set = x
+        if x['@contentType'] == 'audio':
+            audio_set = x
+    video_rep = video_set["Representation"]
     audio_rep = audio_set["Representation"][-1] if isinstance(
         audio_set["Representation"], list) else audio_set["Representation"]
 
     video_url = video_rep["BaseURL"]
     audio_url = audio_rep["BaseURL"]
 
-    video_height = video_rep['@height']
-    video_width = video_rep['@width']
+    video_height = video_set['@height']
+    video_width = video_set['@width']
 
-    logger.info(f"[+] Best Video Resolution: {video_width}x{video_height}")
+    if 'mp4' in audio_rep["@codecs"]:
+        ac = 'aac'
+    elif 'ec-3' in audio_rep["@codecs"]:
+        ac = 'eac3'
+    elif 'ac-3' in audio_rep["@codecs"]:
+        ac = 'ac3'
+
+
+    logger.info('[+] VIDEO - resolution: ' + video_width + 'x' + video_height + ' - ' + convert_size(int(video_rep['@bandwidth']) * 0.853) + ' - fps: ' + video_set['@frameRate'])
+    logger.info('[+] AUDIO - audio-codec: ' + ac + ' - ' + convert_size(int(audio_rep['@bandwidth']) * 0.853))
+    audio_aac = "AAC"
+    audio_eac3 = "DDP"
+    audio_ac3 = "DD"
+    audio_dts = "DTS"
+    audio_2_ch = "2.0"
+    audio_6_ch = "5.1"
+    audio_8_ch = "7.1"
 
     # get video kid
     logger.info("[+] Getting video kid...")
-    video_kid: str = video_set["ContentProtection"]["@cenc:default_KID"]
+    video_kid: str = video_set["ContentProtection"][0]["@cenc:default_KID"]
     video_kid = video_kid.lower().replace("-", "")
+    video_kid2 = ([f"{video_kid}"])
+    logger.info(f"[+] {video_kid2}")
 
     # get video pssh
     logger.info("[+] Getting video pssh...")
     video_pssh = get_pssh(
         video_url, video_rep["SegmentBase"]["Initialization"]["@range"])
     video_pssh_b64 = base64.b64encode(video_pssh).decode("utf-8")
+    video_pssh_b642 = ([f"{video_pssh_b64}"])
+    logger.info(f"[+] {video_pssh_b642}")
 
-    # download audio
-    if not audio_dec_file.exists():
-        logger.info("[+] Downloading audio...")
-        download_aria(audio_url, film_path, audio_dec_filename)
-    else:
-        logger.warning("[+] Audio already downloaded, skipping")
+    # get audio kid
+    logger.info("[+] Getting audio kid...")
+    audio_kid: str = audio_set["ContentProtection"][0]["@cenc:default_KID"]
+    audio_kid = audio_kid.lower().replace("-", "")
+    audio_kid2 = ([f"{audio_kid}"])
+    logger.info(f"[+] {audio_kid2}")
 
-    # download video
-    if not video_enc_file.exists():
-        logger.info("[+] Downloading video...")
-        download_aria(video_url, film_path, video_enc_filename)
-    else:
-        logger.warning("[+] Video already downloaded, skipping")
+    # get audio pssh
+    logger.info("[+] Getting audio pssh...")
+    audio_pssh = get_pssh(
+        audio_url, audio_rep["SegmentBase"]["Initialization"]["@range"])
+    audio_pssh_b64 = base64.b64encode(audio_pssh).decode("utf-8")
+    audio_pssh_b642 = ([f"{audio_pssh_b64}"])
+    logger.info(f"[+] {audio_pssh_b642}")
 
-    # get key
-    logger.info("[+] Searching for key in vault...")
+    # get key video
     keys = get_key_from_vault(video_kid)
     if not keys:
-        logger.info("[+] Key not found in vault, Getting key...")
         license_url = LICENSE_URL.format(context=dash_stream.drm_key_encoded)
         cert_b64 = get_cert(license_url)
         correct, keys = get_keys(video_pssh_b64, license_url, cert_b64)
         if not correct:
             raise Exception("Failed to get keys")
 
-        logger.info("[+] Saving keys to vault...")
-        save_keys_to_vault(keys, film.title_safe)
-    else:
-        logger.info("[+] Key found in vault")
-
     # find matching key
-    logger.info("[+] Finding matching key...")
+    logger.info("[+] VIDEO KEY:...")
     key = next(
         (x for x in keys if x.kid == video_kid), None)
     if not key:
         raise Exception("No matching key")
 
-    logger.info(f"[+] Found matching key: {key.kid}:{key.key}")
+    keyvideo = " ".join([f"{key.kid}:{key.key}"])
+    key_video2 = ([f"{keyvideo}"])
+    logger.info(key_video2)
 
-    # decrypt video
-    if not video_dec_file.exists():
-        logger.info("[+] Decrypting video...")
-        shaka_decrypt(video_enc_file, video_dec_file, key)
-    else:
-        logger.warning("[+] Video already decrypted, skipping")
+    # get key audio
+    keys = get_key_from_vault(audio_kid)
+    if not keys:
+        license_url = LICENSE_URL.format(context=dash_stream.drm_key_encoded)
+        cert_b64 = get_cert(license_url)
+        correct, keys = get_keys(audio_pssh_b64, license_url, cert_b64)
+        if not correct:
+            raise Exception("Failed to get keys")
 
-    # merge audio and video
-    logger.info("[+] Merging audio and video...")
-    merge_mkv(audio_dec_file, video_dec_file, final_file)
+    # find matching key
+    logger.info("[+] AUDIO KEY:")
+    key = next(
+        (x for x in keys if x.kid == audio_kid), None)
+    if not key:
+        raise Exception("No matching key")
 
-    logger.info(f"[+] Done! Output: {final_file}")
+    keyaudio = " ".join([f"{key.kid}:{key.key}"])
+    key_audio2 = ([f"{keyaudio}"])
+    logger.info(key_audio2)
+    
+    logger.info(f"[+] Downloading and muxing...")
+    film_title_safe2 = ([f"{film.title_safe}.{video_height}p.{tag_jffplus}.WEB-DL.{audio_aac}{audio_2_ch}.x264-{tag_user}.mkv"])
+    logger.info(film_title_safe2)
+    subprocess.run([reexe, f"{dash_stream.url}" , "--mp4-real-time-decryption", f"--tmp-dir={film_path}", f"--save-dir={film_path}", "--download-retry-count=5", "--check-segments-count=false", "--no-date-info", "--log-level=OFF", "--use-shaka-packager", "--auto-select", "--concurrent-download", "--key", f"{keyvideo}" , "--key", f"{keyaudio}" , '--save-name', f'{film.title_safe}.{video_height}p.{tag_jffplus}.WEB-DL.{audio_aac}{audio_2_ch}.x264-{tag_user}', f"--mux-after-done", f"format=mkv:muxer=mkvmerge:bin_path=mkvmerge.exe"])
+    logger.info(f"[+] Done...")
+    
 
-    logger.info("[+] Cleaning up...")
-    video_enc_file.unlink()
-    audio_dec_file.unlink()
-    video_dec_file.unlink()
 
 
 if __name__ == "__main__":
